@@ -758,6 +758,8 @@ async def wait_tasks(
         failed_tasks = result["failed_tasks"]
         still_running = result["still_running"]
         
+        status_message = ""
+
         # Show task status for each task
         if completed_tasks:
             task_list = ", ".join([f"{task['task_id']} ({task['duration']:.1f}s)" if task.get('duration') else task['task_id'] for task in completed_tasks])
