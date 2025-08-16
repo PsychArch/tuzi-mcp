@@ -1,0 +1,19 @@
+[project]
+name = "tuzi-mcp"
+version = "0.1.0"
+description = "An MCP (Model Context Protocol) server for asynchronous image generation using the Tu-zi API"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastmcp>=2.11.3",
+    "httpx>=0.28.1",
+]
+
+[project.scripts]
+tuzi-mcp = "tuzi_mcp.server:main"
+
+[tool.uv]
+package = true
+
+[tool.setuptools]
+packages = ["tuzi_mcp"]
