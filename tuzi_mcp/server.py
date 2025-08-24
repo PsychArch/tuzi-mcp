@@ -427,6 +427,18 @@ async def validate_image_file(image_path: str) -> None:
     file_size = path.stat().st_size
     if file_size > max_size:
         raise ToolError(f"Image file too large: {file_size / (1024*1024):.1f}MB (max: 20MB)")
+
+
+async def validate_image_files(image_paths: List[str]) -> None:
+    """Validate multiple image files"""
+    if not image_paths:
+        return
+    
+    for i, image_path in enumerate(image_paths):
+        try:
+            await validate_image_file(image_path)
+        except ToolError as e:
+            raise ToolError(f"Reference image {i+1}: {str(e)}")
     
 
 
@@ -465,18 +477,41 @@ async def load_and_encode_image(image_path: str) -> str:
         raise ToolError(error_msg)
 
 
-def prepare_multimodal_content(prompt: str, image_data_url: Optional[str] = None) -> List[Dict[str, Any]]:
+async def load_and_encode_images(image_paths: List[str]) -> List[str]:
+    """Load multiple image files and convert to base64 data URLs"""
+    if not image_paths:
+        return []
+    
+    await validate_image_files(image_paths)
+    
+    data_urls = []
+    for image_path in image_paths:
+        try:
+            data_url = await load_and_encode_image(image_path)
+            data_urls.append(data_url)
+        except ToolError:
+            raise  # Re-raise ToolError as-is
+        except Exception as e:
+            error_msg = f"Failed to process reference image {image_path}: {str(e)}"
+            raise ToolError(error_msg)
+    
+    return data_urls
+
+
+def prepare_multimodal_content(prompt: str, image_data_urls: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     """Prepare content array for multimodal API request"""
     content = [{"type": "text", "text": prompt}]
     
-    if image_data_url:
-        content.append({
-            "type": "image_url",
-            "image_url": {
-                "url": image_data_url,
-                "detail": "high"  # Use high detail for better quality
-            }
-        })
+    # Handle multiple images
+    if image_data_urls:
+        for data_url in image_data_urls:
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": data_url,
+                    "detail": "high"  # Use high detail for better quality
+                }
+            })
     
     return content
 
@@ -525,7 +560,7 @@ async def get_source_url_fast(
     prompt: str, 
     model: str = "gpt-4o-image-async", 
     aspect_ratio: str = "1:1",
-    reference_image_path: Optional[str] = None
+    reference_image_paths: Optional[List[str]] = None
 ) -> tuple[str, str]:
     """
     Quickly submit async request and return preview/source URLs (no waiting/polling)
@@ -534,7 +569,7 @@ async def get_source_url_fast(
         prompt: Text prompt for image generation
         model: Model to use for generation
         aspect_ratio: Aspect ratio of the generated image
-        reference_image_path: Optional path to reference image for multimodal input
+        reference_image_paths: Optional list of paths to reference images for multimodal input
     
     Returns:
         tuple: (preview_url, source_url)
@@ -553,19 +588,19 @@ async def get_source_url_fast(
     # Use prompt as-is since it includes aspect ratio information
     enhanced_prompt = prompt
     
-    # Handle reference image if provided
-    image_data_url = None
-    if reference_image_path:
+    # Handle reference images if provided
+    image_data_urls = None
+    if reference_image_paths:
         try:
-            image_data_url = await load_and_encode_image(reference_image_path)
+            image_data_urls = await load_and_encode_images(reference_image_paths)
         except ToolError:
             raise  # Re-raise ToolError as-is
         except Exception as e:
-            error_msg = f"Failed to process reference image: {str(e)}"
+            error_msg = f"Failed to process reference images: {str(e)}"
             raise ToolError(error_msg)
     
     # Prepare content for API request
-    content = prepare_multimodal_content(enhanced_prompt, image_data_url)
+    content = prepare_multimodal_content(enhanced_prompt, image_data_urls)
     
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -644,7 +679,7 @@ async def save_image_to_file(b64_image: str, output_path: str) -> None:
         f.write(image_data)
 
 
-async def generate_image_task(task: ImageTask, prompt: str, model: str, reference_image_path: Optional[str] = None) -> None:
+async def generate_image_task(task: ImageTask, prompt: str, model: str, reference_image_paths: Optional[List[str]] = None) -> None:
     """Execute an image generation task using coordinated polling"""
     short_id = task.task_id[:8] + "..."
     
@@ -657,7 +692,7 @@ async def generate_image_task(task: ImageTask, prompt: str, model: str, referenc
             prompt=prompt,
             model=model,
             aspect_ratio="1:1",
-            reference_image_path=reference_image_path
+            reference_image_paths=reference_image_paths
         )
         
         phase1_elapsed = (datetime.now() - start_time).total_seconds()
@@ -696,14 +731,14 @@ async def generate_image_task(task: ImageTask, prompt: str, model: str, referenc
 @mcp.tool
 async def submit_gpt_image(
     prompt: Annotated[str, "The text prompt describing the image to generate. Must include aspect ratio (1:1, 3:2, or 2:3) in it"],
-    output_path: Annotated[str, "Absolute path where the generated image should be saved"],
+    output_path: Annotated[str, "Absolute path to save the generated image"],
     model: Annotated[
         Literal["gpt-4o-image-async", "gpt-4o-image-vip-async"], 
         "The GPT image model to use -- only use gpt-4o-image-vip-async when failure rate is too high"
     ] = "gpt-4o-image-async",
-    reference_image_path: Annotated[
+    reference_image_paths: Annotated[
         Optional[str],
-        "Optional path to reference image for multimodal generation (supports PNG, JPEG, WebP, GIF, BMP)"
+        "Optional comma-separated paths (e.g., '/path/to/img1.png,/path/to/img2.png'). Supports PNG, JPEG, WebP, GIF, BMP."
     ] = None,
 ) -> ToolResult:
     """
@@ -712,16 +747,18 @@ async def submit_gpt_image(
     Use wait_tasks() to wait for all submitted tasks to complete.
     """
     try:
-        # Validate reference image if provided
-        if reference_image_path:
-            await validate_image_file(reference_image_path)
+        # Parse comma-separated reference image paths
+        parsed_image_paths = None
+        if reference_image_paths:
+            # Split by comma and strip whitespace
+            parsed_image_paths = [path.strip() for path in reference_image_paths.split(',') if path.strip()]
         
         # Create task
         task_id = task_manager.create_task(output_path)
         task = task_manager.get_task(task_id)
         
         # Start async execution
-        future = asyncio.create_task(generate_image_task(task, prompt, model, reference_image_path))
+        future = asyncio.create_task(generate_image_task(task, prompt, model, parsed_image_paths))
         task.future = future
         task_manager.active_tasks.append(future)
         
