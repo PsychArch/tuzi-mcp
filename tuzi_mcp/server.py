@@ -530,6 +530,22 @@ async def extract_async_urls(response_content: str) -> tuple[Optional[str], Opti
     return preview_url, source_url
 
 
+async def extract_gemini_image(response_content: str) -> Optional[str]:
+    """Extract base64 image data or URL from Gemini streaming response"""
+    
+    # Primary pattern: base64 data (90% of responses)
+    base64_match = re.search(r'data:image/[^;]+;base64,([A-Za-z0-9+/=]+)', response_content)
+    if base64_match:
+        return base64_match.group(1)
+    
+    # Secondary pattern: any HTTPS URL with image file extension
+    url_match = re.search(r'https://[^\s<>")\]]+\.(jpeg|jpg|png|gif|webp|bmp)', response_content, re.IGNORECASE)
+    if url_match:
+        return url_match.group(0)
+    
+    return None
+
+
 
 async def download_image_from_url(image_url: str) -> bytes:
     """Download image data from URL"""
@@ -664,6 +680,88 @@ async def get_source_url_fast(
         raise ToolError(error_msg)
 
 
+async def stream_gemini_api(
+    prompt: str,
+    reference_image_paths: Optional[List[str]] = None
+) -> str:
+    """
+    Call Gemini streaming API and return complete response content
+    
+    Args:
+        prompt: Text prompt for image generation
+        reference_image_paths: Optional list of paths to reference images
+    
+    Returns:
+        Complete response content from streaming API
+    """
+    
+    api_key = os.getenv("TUZI_API_KEY")
+    if not api_key:
+        raise ToolError("TUZI_API_KEY environment variable is required")
+    
+    # Get base URL (with default)
+    base_url = os.getenv("TUZI_URL_BASE", "https://api.tu-zi.com")
+    api_url = f"{base_url}/v1/chat/completions"
+    
+    # Handle reference images if provided
+    image_data_urls = None
+    if reference_image_paths:
+        try:
+            image_data_urls = await load_and_encode_images(reference_image_paths)
+        except ToolError:
+            raise
+        except Exception as e:
+            raise ToolError(f"Failed to process reference images: {str(e)}")
+    
+    # Prepare content for API request
+    content = prepare_multimodal_content(prompt, image_data_urls)
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": "gemini-2.5-flash-image",
+        "messages": [
+            {
+                "role": "user",
+                "content": content
+            }
+        ],
+        "stream": True
+    }
+    
+    try:
+        # Use 120s timeout as recommended in docs
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                api_url,
+                headers=headers,
+                json=payload
+            ) as response:
+                response.raise_for_status()
+                
+                # Read complete streaming response
+                response_content = ""
+                async for chunk in response.aiter_text():
+                    response_content += chunk
+                
+                # Log response for debugging
+                if os.getenv("TUZI_ENABLE_LOGGING"):
+                    logger.debug(f"Gemini API response content: {response_content}")
+                
+                return response_content
+                
+    except httpx.TimeoutException as e:
+        raise ToolError(f"Gemini API request timeout: {str(e)}")
+    except httpx.HTTPStatusError as e:
+        raise ToolError(f"Gemini API HTTP {e.response.status_code} error: {str(e)}")
+    except Exception as e:
+        raise ToolError(f"Unexpected Gemini API error: {str(e)}")
+
+
 
 
 async def save_image_to_file(b64_image: str, output_path: str) -> None:
@@ -728,6 +826,72 @@ async def generate_image_task(task: ImageTask, prompt: str, model: str, referenc
         task.status = "failed"
 
 
+async def generate_gemini_image_task(task: ImageTask, prompt: str, model: str = "gemini-2.5-flash-image", reference_image_paths: Optional[List[str]] = None) -> None:
+    """Execute a Gemini image generation task using direct streaming"""
+    short_id = task.task_id[:8] + "..."
+    
+    try:
+        task.status = "running"
+        start_time = datetime.now()
+        
+        # Stream Gemini API call
+        response_content = await stream_gemini_api(
+            prompt=prompt,
+            reference_image_paths=reference_image_paths
+        )
+        
+        # Extract image data from response
+        image_data = await extract_gemini_image(response_content)
+        
+        if not image_data:
+            error_msg = f"No image data found in Gemini response ({len(response_content)} chars)"
+            task.error = error_msg
+            task.status = "failed"
+            return
+        
+        # Handle both base64 data and URLs
+        if image_data.startswith('http'):
+            # URL case: download the image
+            try:
+                downloaded_data = await download_image_from_url(image_data)
+                b64_image = base64.b64encode(downloaded_data).decode('utf-8')
+                final_url = image_data
+            except Exception as e:
+                error_msg = f"Failed to download image from URL: {str(e)}"
+                task.error = error_msg
+                task.status = "failed"
+                return
+        else:
+            # Base64 case: use directly
+            b64_image = image_data
+            final_url = None
+        
+        # Prepare result
+        result = {
+            "data": [{"b64_json": b64_image, "url": final_url}],
+            "service": "gemini",
+            "model": model
+        }
+        
+        # Save image to file
+        await save_image_to_file(b64_image, task.output_path)
+        result["saved_to"] = task.output_path
+        
+        # Update task
+        task.result = result
+        task.status = "completed"
+        
+        # Record completion time
+        elapsed = (datetime.now() - start_time).total_seconds()
+        task_manager.record_completion_time(elapsed)
+        
+    except Exception as e:
+        elapsed = (datetime.now() - start_time).total_seconds()
+        error_msg = f"Gemini task error: {str(e)}"
+        task.error = error_msg
+        task.status = "failed"
+
+
 @mcp.tool
 async def submit_gpt_image(
     prompt: Annotated[str, "The text prompt describing the image to generate. Must include aspect ratio (1:1, 3:2, or 2:3) in it"],
@@ -774,6 +938,50 @@ async def submit_gpt_image(
         
     except Exception as e:
         raise ToolError(f"Failed to submit task: {str(e)}")
+
+
+@mcp.tool
+async def submit_gemini_image(
+    prompt: Annotated[str, "The text prompt describing the image to generate. Must include aspect ratio (1:1, 3:2, 2:3, 16:9, 9:16, 4:5) in it"],
+    output_path: Annotated[str, "Absolute path to save the generated image"],
+    reference_image_paths: Annotated[
+        Optional[str],
+        "Optional comma-separated paths (e.g., '/path/to/img1.png,/path/to/img2.png'). Supports PNG, JPEG, WebP, GIF, BMP."
+    ] = None,
+) -> ToolResult:
+    """
+    Submit a Gemini image generation task.
+    
+    Use wait_tasks() to wait for all submitted tasks to complete.
+    """
+    try:
+        # Parse comma-separated reference image paths
+        parsed_image_paths = None
+        if reference_image_paths:
+            # Split by comma and strip whitespace
+            parsed_image_paths = [path.strip() for path in reference_image_paths.split(',') if path.strip()]
+        
+        # Create task
+        task_id = task_manager.create_task(output_path)
+        task = task_manager.get_task(task_id)
+        
+        # Start async execution
+        future = asyncio.create_task(generate_gemini_image_task(task, prompt, "gemini-2.5-flash-image", parsed_image_paths))
+        task.future = future
+        task_manager.active_tasks.append(future)
+        
+        result_data = {
+            "task_id": task_id,
+            "status": "submitted"
+        }
+        
+        return ToolResult(
+            content=[TextContent(type="text", text=f"{task_id} submitted.")],
+            structured_content=result_data
+        )
+        
+    except Exception as e:
+        raise ToolError(f"Failed to submit Gemini task: {str(e)}")
 
 
 @mcp.tool
@@ -876,14 +1084,13 @@ async def list_tasks(
         if status_filter:
             message += f" with status '{status_filter}'"
         
-        # Add error details for failed tasks
-        failed_task_count = len([task for task in filtered_tasks if task.status == "failed"])
-        if failed_task_count > 0:
-            message += f"\n\nFailed tasks ({failed_task_count}):"
+        if filtered_tasks:
+            message += "\n\nTasks:"
             for task in filtered_tasks:
-                if task.status == "failed":
-                    error_msg = task.error or "Unknown error"
-                    message += f"\n- {task.task_id}: {error_msg}"
+                status_display = task.status.upper()
+                message += f"\n- {task.task_id}: {status_display}"
+                if task.status == "failed" and task.error:
+                    message += f" ({task.error})"
         
         return ToolResult(
             content=[TextContent(type="text", text=message)],
