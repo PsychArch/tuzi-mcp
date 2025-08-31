@@ -61,14 +61,8 @@ async def submit_gpt_image(
         task.future = future
         task_manager.active_tasks.append(future)
         
-        result_data = {
-            "task_id": task_id,
-            "status": "submitted"
-        }
-        
         return ToolResult(
-            content=[TextContent(type="text", text=f"{task_id} submitted.")],
-            structured_content=result_data
+            content=[TextContent(type="text", text=f"{task_id} submitted.")]
         )
         
     except Exception as e:
@@ -105,14 +99,8 @@ async def submit_gemini_image(
         task.future = future
         task_manager.active_tasks.append(future)
         
-        result_data = {
-            "task_id": task_id,
-            "status": "submitted"
-        }
-        
         return ToolResult(
-            content=[TextContent(type="text", text=f"{task_id} submitted.")],
-            structured_content=result_data
+            content=[TextContent(type="text", text=f"{task_id} submitted.")]
         )
         
     except Exception as e:
@@ -156,16 +144,8 @@ async def wait_tasks(
             task_list = ", ".join([task['task_id'] for task in still_running])
             status_message += f"\nrunning_tasks({len(still_running)}): {task_list}"
         
-        # Prepare summary for structured content
-        summary = {
-            "total_completed": result["total_completed"],
-            "total_failed": result["total_failed"],
-            "still_running": result["still_running"]
-        }
-        
         return ToolResult(
-            content=[TextContent(type="text", text=status_message)],
-            structured_content=summary
+            content=[TextContent(type="text", text=status_message)]
         )
         
     except Exception as e:
@@ -196,40 +176,29 @@ async def list_tasks(
         else:
             filtered_tasks = all_tasks
         
-        tasks_info = []
-        for task in filtered_tasks:
-            task_info = {
-                "task_id": task.task_id,
-                "status": task.status
-            }
+        if not filtered_tasks:
+            message = "No tasks found"
+            if status_filter:
+                message += f" with status '{status_filter}'"
+        else:
+            # Show detailed task list for LLM decision making
+            message = f"Tasks ({len(filtered_tasks)} found"
+            if status_filter:
+                message += f", filtered by '{status_filter}'"
+            message += "):\n"
             
-            if task.error:
-                task_info["error"] = task.error
-            
-            tasks_info.append(task_info)
-        
-        summary = {
-            "total_tasks": len(all_tasks),
-            "filtered_tasks": len(filtered_tasks),
-            "filter": status_filter,
-            "tasks": tasks_info
-        }
-        
-        message = f"Found {len(filtered_tasks)} tasks"
-        if status_filter:
-            message += f" with status '{status_filter}'"
-        
-        if filtered_tasks:
-            message += "\n\nTasks:"
             for task in filtered_tasks:
                 status_display = task.status.upper()
-                message += f"\n- {task.task_id}: {status_display}"
+                message += f"- {task.task_id}: {status_display}"
                 if task.status == "failed" and task.error:
-                    message += f" ({task.error})"
+                    message += f" - Error: {task.error}"
+                message += "\n"
+            
+            # Remove trailing newline
+            message = message.rstrip()
         
         return ToolResult(
-            content=[TextContent(type="text", text=message)],
-            structured_content=summary
+            content=[TextContent(type="text", text=message)]
         )
         
     except Exception as e:
