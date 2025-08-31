@@ -99,6 +99,10 @@ class TaskManager:
                     "elapsed_time": task_elapsed
                 }
                 
+                # Include warning if available
+                if task.result and "warning" in task.result:
+                    task_info["warning"] = task.result["warning"]
+                
                 completed_tasks.append(task_info)
                 
             elif task.status == "failed":
@@ -329,8 +333,9 @@ class PollingCoordinator:
                 if result and "data" in result and len(result["data"]) > 0:
                     first_image = result["data"][0]
                     if "b64_json" in first_image and first_image["b64_json"]:
-                        await save_image_to_file(first_image["b64_json"], task.output_path)
-                        result["saved_to"] = task.output_path
+                        actual_path, warning = await save_image_to_file(first_image["b64_json"], task.output_path)
+                        if warning:
+                            result["warning"] = warning
                 
                 # Update task
                 task.result = result

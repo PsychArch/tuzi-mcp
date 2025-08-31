@@ -162,8 +162,9 @@ class GeminiImageClient:
             }
             
             # Save image to file
-            await save_image_to_file(b64_image, task.output_path)
-            result["saved_to"] = task.output_path
+            actual_path, warning = await save_image_to_file(b64_image, task.output_path)
+            if warning:
+                result["warning"] = warning
             
             # Update task
             task.result = result

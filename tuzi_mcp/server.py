@@ -130,8 +130,22 @@ async def wait_tasks(
 
         # Show task status for each task
         if completed_tasks:
-            task_list = ", ".join([f"{task['task_id']} ({task['duration']:.1f}s)" if task.get('duration') else task['task_id'] for task in completed_tasks])
-            status_message += f"\ncompleted_tasks({len(completed_tasks)}): {task_list}"
+            # Check if any tasks have warnings
+            tasks_with_warnings = [task for task in completed_tasks if task.get('warning')]
+            
+            if tasks_with_warnings:
+                # Show detailed format with warnings
+                status_message += f"\ncompleted_tasks({len(completed_tasks)}):"
+                for task in completed_tasks:
+                    duration_str = f" ({task['elapsed_time']:.1f}s)" if task.get('elapsed_time') else ""
+                    if task.get('warning'):
+                        status_message += f"\n- {task['task_id']}{duration_str}: {task['warning']}"
+                    else:
+                        status_message += f"\n- {task['task_id']}{duration_str}"
+            else:
+                # Use concise format when no warnings
+                task_list = ", ".join([f"{task['task_id']} ({task['elapsed_time']:.1f}s)" if task.get('elapsed_time') else task['task_id'] for task in completed_tasks])
+                status_message += f"\ncompleted_tasks({len(completed_tasks)}): {task_list}"
         
         if failed_tasks:
             status_message += f"\nfailed_tasks({len(failed_tasks)}):"

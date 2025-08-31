@@ -7,9 +7,11 @@ Provides functions for image validation, encoding, downloading, and file operati
 import base64
 import os
 import httpx
+import tempfile
+from datetime import datetime
 from mimetypes import guess_type
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastmcp.exceptions import ToolError
 
@@ -152,14 +154,47 @@ async def download_image_from_url(image_url: str) -> bytes:
         raise ToolError(error_msg)
 
 
-async def save_image_to_file(b64_image: str, output_path: str) -> None:
-    """Save base64 image data to file"""
+async def save_image_to_file(b64_image: str, output_path: str) -> Tuple[str, Optional[str]]:
+    """Save base64 image data to file with fail-safe temp directory fallback
+    
+    Returns:
+        Tuple of (actual_save_path, warning_message)
+        - actual_save_path: Where the file was actually saved
+        - warning_message: None if saved to intended path, warning if fallback used
+    """
     # Decode base64 image
     image_data = base64.b64decode(b64_image)
     
-    # Create parent directories if they don't exist
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    
-    # Write image to file
-    with open(output_path, 'wb') as f:
-        f.write(image_data)
+    # Try to save to the intended path first
+    try:
+        # Create parent directories if they don't exist
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        
+        # Write image to file
+        with open(output_path, 'wb') as f:
+            f.write(image_data)
+        
+        return output_path, None
+        
+    except (OSError, PermissionError, FileNotFoundError) as e:
+        # Fallback to temp directory with timestamp-based filename
+        original_path = Path(output_path)
+        original_extension = original_path.suffix.lower() if original_path.suffix else '.png'
+        
+        # Always use timestamp format to avoid conflicts
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        fallback_filename = f"tuzi_image_{timestamp}{original_extension}"
+        
+        temp_dir = tempfile.gettempdir()
+        fallback_path = os.path.join(temp_dir, fallback_filename)
+        
+        try:
+            with open(fallback_path, 'wb') as f:
+                f.write(image_data)
+            
+            warning_msg = f"Could not save to '{output_path}' ({str(e)}), saved to '{fallback_path}' instead"
+            return fallback_path, warning_msg
+            
+        except Exception as fallback_error:
+            # If even temp directory fails, raise the original error
+            raise ToolError(f"Failed to save image to '{output_path}': {str(e)}. Temp directory fallback also failed: {str(fallback_error)}")

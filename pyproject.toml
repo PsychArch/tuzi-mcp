@@ -1,6 +1,6 @@
 [project]
 name = "tuzi-mcp"
-version = "0.2.0"
+version = "0.2.1"
 description = "An MCP (Model Context Protocol) server for asynchronous image generation using the Tu-zi API"
 readme = "README.md"
 requires-python = ">=3.13"
