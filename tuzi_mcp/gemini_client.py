@@ -132,7 +132,8 @@ class GeminiImageClient:
             image_data = await self.extract_image(response_content)
             
             if not image_data:
-                error_msg = f"No image data found in Gemini response ({len(response_content)} chars)"
+                response_clip = response_content[:1000] + "..." if len(response_content) > 1000 else response_content
+                error_msg = f"No image data found in Gemini response ({len(response_content)} chars): {response_clip}"
                 task.error = error_msg
                 task.status = "failed"
                 return
@@ -154,20 +155,14 @@ class GeminiImageClient:
                 b64_image = image_data
                 final_url = None
             
-            # Prepare result
-            result = {
-                "data": [{"b64_json": b64_image, "url": final_url}],
-                "service": "gemini",
-                "model": model
-            }
-            
             # Save image to file
             actual_path, warning = await save_image_to_file(b64_image, task.output_path)
-            if warning:
-                result["warning"] = warning
             
-            # Update task
-            task.result = result
+            # Only store warning if present (no need for full result object)
+            if warning:
+                task.result = {"warning": warning}
+            else:
+                task.result = None
             task.status = "completed"
             
             # Record completion time

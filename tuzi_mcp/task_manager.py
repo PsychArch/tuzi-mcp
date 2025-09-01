@@ -320,28 +320,18 @@ class PollingCoordinator:
                 b64_image = base64.b64encode(image_data).decode('utf-8')
                 
                 
-                # Prepare result
-                result = {
-                    "data": [{"b64_json": b64_image, "url": final_url}],
-                    "preview_url": task_info.get('preview_url'),
-                    "source_url": task_info['source_url'],
-                    "final_url": final_url
-                }
-                
                 # Save image to file
                 task = task_info['task']
-                if result and "data" in result and len(result["data"]) > 0:
-                    first_image = result["data"][0]
-                    if "b64_json" in first_image and first_image["b64_json"]:
-                        actual_path, warning = await save_image_to_file(first_image["b64_json"], task.output_path)
-                        if warning:
-                            result["warning"] = warning
+                actual_path, warning = await save_image_to_file(b64_image, task.output_path)
                 
-                # Update task
-                task.result = result
+                # Only store warning if present (no need for full result object)
+                if warning:
+                    task.result = {"warning": warning}
+                else:
+                    task.result = None
+                
                 task.status = "completed"
                 task_info['completed'] = True
-                task_info['result'] = result
                 
                 # Record completion time for adaptive wait calculation
                 
