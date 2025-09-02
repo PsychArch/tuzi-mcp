@@ -77,6 +77,10 @@ async def submit_gemini_image(
         Optional[str],
         "Optional comma-separated paths (e.g., '/path/to/img1.png,/path/to/img2.png'). Supports PNG, JPEG, WebP, GIF, BMP."
     ] = None,
+    hd: Annotated[
+        bool,
+        "HD quality. Only enable it when user explicitly requests. Only support .webp output."
+    ] = False,
 ) -> ToolResult:
     """
     Submit a Gemini image generation task.
@@ -94,8 +98,11 @@ async def submit_gemini_image(
         task_id = task_manager.create_task(output_path)
         task = task_manager.get_task(task_id)
         
+        # Select model based on HD parameter
+        model = "gemini-2.5-flash-image-hd" if hd else "gemini-2.5-flash-image"
+        
         # Start async execution using Gemini client
-        future = asyncio.create_task(gemini_client.generate_task(task, prompt, "gemini-2.5-flash-image", parsed_image_paths))
+        future = asyncio.create_task(gemini_client.generate_task(task, prompt, model, parsed_image_paths))
         task.future = future
         task_manager.active_tasks.append(future)
         

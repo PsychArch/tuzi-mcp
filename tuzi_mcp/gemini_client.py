@@ -45,7 +45,8 @@ class GeminiImageClient:
     async def stream_api(
         self,
         prompt: str,
-        reference_image_paths: Optional[List[str]] = None
+        reference_image_paths: Optional[List[str]] = None,
+        model: str = "gemini-2.5-flash-image"
     ) -> str:
         """
         Call Gemini streaming API and return complete response content
@@ -53,6 +54,7 @@ class GeminiImageClient:
         Args:
             prompt: Text prompt for image generation
             reference_image_paths: Optional list of paths to reference images
+            model: Gemini model to use (gemini-2.5-flash-image or gemini-2.5-flash-image-hd)
         
         Returns:
             Complete response content from streaming API
@@ -79,7 +81,7 @@ class GeminiImageClient:
         }
         
         payload = {
-            "model": "gemini-2.5-flash-image",
+            "model": model,
             "messages": [
                 {
                     "role": "user",
@@ -125,7 +127,8 @@ class GeminiImageClient:
             # Stream Gemini API call
             response_content = await self.stream_api(
                 prompt=prompt,
-                reference_image_paths=reference_image_paths
+                reference_image_paths=reference_image_paths,
+                model=model
             )
             
             # Extract image data from response
