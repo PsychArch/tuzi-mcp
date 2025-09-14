@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tuzi MCP Server - GPT/Gemini Image Generation with Async Task Management
+Tuzi MCP Server - Image Generation with Async Task Management
 
 Provides tools for submitting image generation requests and waiting for completion.
 """
@@ -21,6 +21,7 @@ from mcp.types import TextContent
 from .task_manager import task_manager, ImageTask
 from .gpt_client import gpt_client
 from .gemini_client import gemini_client
+from .seedream_client import seedream_client
 from .image_utils import validate_image_file
 
 # Initialize FastMCP server
@@ -79,7 +80,7 @@ async def submit_gemini_image(
     ] = None,
     hd: Annotated[
         bool,
-        "HD quality. Only enable it when user explicitly requests. Only support .webp output."
+        "HD quality. Only enable it when user explicitly requests. Only support .webp output under HD quality."
     ] = False,
 ) -> ToolResult:
     """
@@ -112,6 +113,82 @@ async def submit_gemini_image(
         
     except Exception as e:
         raise ToolError(f"Failed to submit Gemini task: {str(e)}")
+
+
+@mcp.tool
+async def submit_seedream_image(
+    prompt: Annotated[str, "Prompt for image generation or editing."],
+    output_path: Annotated[str, "Absolute path to save the image(s). Only support JPEG format."],
+    size: Annotated[
+        Literal[
+            "1024x1024",
+            "2048x2048",
+            "4096x4096",
+            "2560x1440",  # 16:9
+            "1440x2560",  # 9:16
+            "2304x1728",  # 4:3
+            "1728x2304",  # 3:4
+            "2496x1664",  # 3:2
+            "1664x2496",  # 2:3
+            "3024x1296",  # 21:9
+        ],
+        "Image size（WxH)"
+    ] = "1024x1024",
+    quality: Annotated[
+        Literal["standard", "high"],
+        "Image quality for generations. Default 'high'."
+    ] = "high",
+    n: Annotated[
+        int,
+        Field(ge=1, le=8, description="Number of images to generate.")
+    ] = 1,
+    reference_image_paths: Annotated[
+        Optional[str],
+        "Optional comma-separated reference image paths."
+    ] = None,
+) -> ToolResult:
+    """
+    Submit a Seedream (即梦) image generation/editing task. Suitable for Chinese-context tasks.
+
+    For generating multiple images while keeping same style (n>1), use the prompt format:
+    '[General style description] Create separate images: Image 1: [description], Image 2: [description], Image 3: [description], Image 4: [description]'
+    
+    Output files are saved with _1, _2, _3, _4 suffixes when n>1.
+    
+    Use wait_tasks() to wait for completion.
+    """
+    try:
+        # Create task
+        task_id = task_manager.create_task(output_path)
+        task = task_manager.get_task(task_id)
+
+        # Parse reference paths (only first is used for edits)
+        edit_image_path = None
+        if reference_image_paths:
+            paths = [p.strip() for p in reference_image_paths.split(',') if p.strip()]
+            if paths:
+                edit_image_path = paths[0]
+
+        # Start async execution using Seedream images client (generation or edit)
+        future = asyncio.create_task(
+            seedream_client.generate_task(
+                task,
+                prompt,
+                size=size,
+                quality=quality,
+                n=n,
+                edit_image_path=edit_image_path,
+            )
+        )
+        task.future = future
+        task_manager.active_tasks.append(future)
+
+        return ToolResult(
+            content=[TextContent(type="text", text=f"{task_id} submitted.")]
+        )
+
+    except Exception as e:
+        raise ToolError(f"Failed to submit Seedream task: {str(e)}")
 
 
 @mcp.tool

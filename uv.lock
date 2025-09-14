@@ -837,7 +837,7 @@ wheels = [
 
 [[package]]
 name = "tuzi-mcp"
-version = "0.2.3"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },

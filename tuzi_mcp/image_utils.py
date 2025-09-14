@@ -43,6 +43,25 @@ async def validate_image_file(image_path: str) -> None:
         raise ToolError(f"Image file too large: {file_size / (1024*1024):.1f}MB (max: 20MB)")
 
 
+def get_image_mime_type(image_path: str) -> str:
+    """Get MIME type for image file with fallback logic"""
+    mime_type, _ = guess_type(image_path)
+    if mime_type is None:
+        # Fallback based on extension
+        ext = Path(image_path).suffix.lower()
+        mime_map = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg', 
+            '.jpeg': 'image/jpeg',
+            '.webp': 'image/webp',
+            '.gif': 'image/gif',
+            '.bmp': 'image/bmp'
+        }
+        mime_type = mime_map.get(ext, 'image/jpeg')
+    
+    return mime_type
+
+
 async def validate_image_files(image_paths: List[str]) -> None:
     """Validate multiple image files"""
     if not image_paths:
@@ -59,20 +78,8 @@ async def load_and_encode_image(image_path: str) -> str:
     """Load image file and convert to base64 data URL"""
     await validate_image_file(image_path)
     
-    # Guess MIME type
-    mime_type, _ = guess_type(image_path)
-    if mime_type is None:
-        # Fallback based on extension
-        ext = Path(image_path).suffix.lower()
-        mime_map = {
-            '.png': 'image/png',
-            '.jpg': 'image/jpeg', 
-            '.jpeg': 'image/jpeg',
-            '.webp': 'image/webp',
-            '.gif': 'image/gif',
-            '.bmp': 'image/bmp'
-        }
-        mime_type = mime_map.get(ext, 'image/jpeg')
+    # Get MIME type
+    mime_type = get_image_mime_type(image_path)
     
     try:
         # Read and encode image file

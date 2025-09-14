@@ -302,13 +302,13 @@ class PollingCoordinator:
             if download_url_match:
                 final_url = download_url_match.group(0)
             else:
-                # Fallback to display image URL from filesystem.site
-                display_url_match = re.search(r'https://filesystem\.site/cdn/[^\s\)\]]+\.(?:png|jpg|jpeg|webp)', content)
-                if display_url_match:
-                    final_url = display_url_match.group(0)
+                # Fallback to any URL with image suffix
+                any_image_url_match = re.search(r'https://[^\s\)\]]+\.(?:png|jpg|jpeg|webp)', content)
+                if any_image_url_match:
+                    final_url = any_image_url_match.group(0)
                 else:
                     # Still no image URL found, check if still processing by looking for specific domain patterns
-                    if "asyncdata.net" in content and not re.search(r'https://filesystem\.site/cdn/', content):
+                    if "asyncdata.net" in content and not re.search(r'https://[^\s\)\]]+\.(?:png|jpg|jpeg|webp)', content):
                         return  # Still processing
                     else:
                         return  # No image URL found
@@ -323,6 +323,7 @@ class PollingCoordinator:
                 # Save image to file
                 task = task_info['task']
                 actual_path, warning = await save_image_to_file(b64_image, task.output_path)
+                
                 
                 # Only store warning if present (no need for full result object)
                 if warning:
