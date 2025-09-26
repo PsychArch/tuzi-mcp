@@ -82,6 +82,10 @@ async def submit_gemini_image(
         bool,
         "HD quality. Only enable it when user explicitly requests. Only support .webp output under HD quality."
     ] = False,
+    vip: Annotated[
+        bool,
+        "VIP model. Only use when normal model fails or user explicitly requests it."
+    ] = False,
 ) -> ToolResult:
     """
     Submit a Gemini image generation task.
@@ -99,8 +103,13 @@ async def submit_gemini_image(
         task_id = task_manager.create_task(output_path)
         task = task_manager.get_task(task_id)
         
-        # Select model based on HD parameter
-        model = "gemini-2.5-flash-image-hd" if hd else "gemini-2.5-flash-image"
+        # Select model based on VIP and HD parameters (VIP takes priority)
+        if vip:
+            model = "gemini-2.5-flash-image-vip"
+        elif hd:
+            model = "gemini-2.5-flash-image-hd"
+        else:
+            model = "gemini-2.5-flash-image"
         
         # Start async execution using Gemini client
         future = asyncio.create_task(gemini_client.generate_task(task, prompt, model, parsed_image_paths))
@@ -117,7 +126,7 @@ async def submit_gemini_image(
 
 @mcp.tool
 async def submit_seedream_image(
-    prompt: Annotated[str, "Prompt for image generation or editing."],
+    prompt: Annotated[str, "Prompt for image generation or editing. No aspect ratio or image size needed."],
     output_path: Annotated[str, "Absolute path to save the image(s). Only support JPEG format."],
     size: Annotated[
         Literal[
