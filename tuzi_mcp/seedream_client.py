@@ -17,6 +17,8 @@ from .image_utils import (
     save_image_to_file,
     validate_image_file,
     get_image_mime_type,
+    adjust_path_for_image_bytes,
+    derive_indexed_output_path,
 )
 from .task_manager import ImageTask, task_manager
 
@@ -163,8 +165,7 @@ class SeedreamImageClient:
                 img_bytes = await download_image_from_url(outputs[0])
                 b64_image = base64.b64encode(img_bytes).decode("utf-8")
                 
-                # Detect actual image format and adjust extension if needed
-                actual_path, format_warning = self._adjust_path_for_format(task.output_path, img_bytes)
+                actual_path, format_warning = adjust_path_for_image_bytes(task.output_path, img_bytes)
                 if format_warning:
                     warnings.append(format_warning)
                 
@@ -173,21 +174,12 @@ class SeedreamImageClient:
                     warnings.append(warning)
                 images_saved = 1
             else:
-                # Multiple outputs: insert index suffix before extension
-                base_path = task.output_path
-                dot = base_path.rfind('.')
-                if dot == -1:
-                    stem, ext = base_path, ".jpg"  # default to jpg
-                else:
-                    stem, ext = base_path[:dot], base_path[dot:]
-
                 for idx, url in enumerate(outputs, start=1):
                     img_bytes = await download_image_from_url(url)
                     b64_image = base64.b64encode(img_bytes).decode("utf-8")
-                    save_path = f"{stem}_{idx}{ext}"
+                    save_path = derive_indexed_output_path(task.output_path, idx, len(outputs))
                     
-                    # Detect actual image format and adjust extension if needed
-                    actual_path, format_warning = self._adjust_path_for_format(save_path, img_bytes)
+                    actual_path, format_warning = adjust_path_for_image_bytes(save_path, img_bytes)
                     if format_warning:
                         warnings.append(format_warning)
                     
@@ -216,45 +208,5 @@ class SeedreamImageClient:
             task.error = f"Seedream task error: {str(e)}"
             task.status = "failed"
     
-    def _adjust_path_for_format(self, requested_path: str, image_bytes: bytes) -> tuple[str, Optional[str]]:
-        """Adjust file path extension based on actual image format and return warning if changed.
-        
-        Returns:
-            Tuple of (actual_path, warning_message)
-        """
-        # Detect image format by checking magic bytes
-        is_jpeg = image_bytes.startswith(b'\xff\xd8\xff')
-        is_png = image_bytes.startswith(b'\x89PNG\r\n\x1a\n')
-        is_webp = image_bytes[8:12] == b'WEBP' if len(image_bytes) > 12 else False
-        
-        # Determine actual format
-        if is_jpeg:
-            actual_format = 'jpg'
-        elif is_png:
-            actual_format = 'png'
-        elif is_webp:
-            actual_format = 'webp'
-        else:
-            # Unknown format, keep original extension
-            return requested_path, None
-        
-        # Check if extension needs to be changed
-        dot_pos = requested_path.rfind('.')
-        if dot_pos == -1:
-            # No extension, add the correct one
-            actual_path = f"{requested_path}.{actual_format}"
-            return actual_path, f"File saved as: {actual_path}"
-        
-        requested_ext = requested_path[dot_pos+1:].lower()
-        if requested_ext != actual_format:
-            # Extension mismatch, change it
-            actual_path = requested_path[:dot_pos] + f".{actual_format}"
-            warning = f"File saved as: {actual_path}"
-            return actual_path, warning
-        
-        # Extension matches, no change needed
-        return requested_path, None
-
-
 # Global instance
 seedream_client = SeedreamImageClient()

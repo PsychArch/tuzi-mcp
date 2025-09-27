@@ -12,7 +12,7 @@ import httpx
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .image_utils import download_image_from_url, save_image_to_file
+from .image_utils import adjust_path_for_image_bytes, download_image_from_url, save_image_to_file
 
 
 class ImageTask:
@@ -318,25 +318,27 @@ class PollingCoordinator:
             try:
                 image_data = await download_image_from_url(final_url)
                 b64_image = base64.b64encode(image_data).decode('utf-8')
-                
-                
-                # Save image to file
+
                 task = task_info['task']
-                actual_path, warning = await save_image_to_file(b64_image, task.output_path)
-                
-                
-                # Only store warning if present (no need for full result object)
-                if warning:
-                    task.result = {"warning": warning}
+                warnings: List[str] = []
+
+                actual_path, format_warning = adjust_path_for_image_bytes(task.output_path, image_data)
+                if format_warning:
+                    warnings.append(format_warning)
+
+                saved_path, save_warning = await save_image_to_file(b64_image, actual_path)
+                if save_warning:
+                    warnings.append(save_warning)
+
+                if warnings:
+                    task.result = {"warning": " | ".join(warnings)}
                 else:
                     task.result = None
-                
+
+                task.output_path = saved_path
                 task.status = "completed"
                 task_info['completed'] = True
-                
-                # Record completion time for adaptive wait calculation
-                
-                # Record completion time for adaptive wait calculation
+
                 task_manager.record_completion_time(elapsed)
                     
             except Exception as e:
@@ -364,3 +366,4 @@ class PollingCoordinator:
 # Global instances
 polling_coordinator = PollingCoordinator()
 task_manager = TaskManager()
+

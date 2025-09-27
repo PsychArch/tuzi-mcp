@@ -72,8 +72,8 @@ async def submit_gpt_image(
 
 @mcp.tool
 async def submit_gemini_image(
-    prompt: Annotated[str, "The text prompt describing the image to generate. Must include aspect ratio (1:1, 3:2, 2:3, 16:9, 9:16, 4:5) in it"],
-    output_path: Annotated[str, "Absolute path to save the generated image"],
+    prompt: Annotated[str, "The text prompt describing the image to generate. Must include aspect ratio (1:1, 3:2, 2:3, 16:9, 9:16, 4:5) in it. For generating multiple images, explicitly prompt like \"Generate 4 different images:\" "],
+    output_path: Annotated[str, "Absolute path to save the generated image(s). When generating multiple images, files saved with _1, _2, _3, _4 suffixes"],
     reference_image_paths: Annotated[
         Optional[str],
         "Optional comma-separated paths (e.g., '/path/to/img1.png,/path/to/img2.png'). Supports PNG, JPEG, WebP, GIF, BMP."
@@ -89,7 +89,7 @@ async def submit_gemini_image(
 ) -> ToolResult:
     """
     Submit a Gemini image generation task.
-    
+
     Use wait_tasks() to wait for all submitted tasks to complete.
     """
     try:

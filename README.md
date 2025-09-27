@@ -41,6 +41,7 @@ Submit Gemini image generation task.
 - `output_path` (string): Absolute save path
 - `reference_image_paths` (string, optional): Comma-separated reference image paths (supports PNG, JPEG, WebP, GIF, BMP)
 - `hd` (boolean, optional): HD quality, only enable when user explicitly requests, HD mode only supports .webp output
+- `vip` (boolean, optional): VIP model, only use when normal model fails or user explicitly requests it
 
 #### `submit_seedream_image`
 Submit Seedream image generation/editing task. Suitable for Chinese-context tasks.

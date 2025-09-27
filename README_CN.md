@@ -41,6 +41,7 @@
 - `output_path` (字符串): 绝对保存路径
 - `reference_image_paths` (字符串，可选): 逗号分隔的参考图像路径 (支持 PNG, JPEG, WebP, GIF, BMP)
 - `hd` (布尔值，可选): HD 质量，仅在用户明确要求时启用，HD 模式仅支持 .webp 输出
+- `vip` (布尔值，可选): VIP 模型，仅在普通模型失败或用户明确要求时使用
 
 #### `submit_seedream_image`
 提交即梦（Seedream）图像生成/编辑任务，适合中文语境任务。

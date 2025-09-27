@@ -11,7 +11,7 @@ import tempfile
 from datetime import datetime
 from mimetypes import guess_type
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
 from fastmcp.exceptions import ToolError
 
@@ -151,14 +151,81 @@ async def download_image_from_url(image_url: str) -> bytes:
     except httpx.TimeoutException as e:
         error_msg = f"Image download timeout after 120s: {str(e)}"
         raise ToolError(error_msg)
-        
+
     except httpx.HTTPStatusError as e:
         error_msg = f"HTTP {e.response.status_code} error downloading image: {str(e)}"
         raise ToolError(error_msg)
-        
+
     except Exception as e:
         error_msg = f"Unexpected error downloading image: {str(e)}"
         raise ToolError(error_msg)
+
+
+def detect_image_format(image_bytes: bytes) -> Optional[str]:
+    """Return canonical image format derived from magic bytes."""
+    if image_bytes.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if len(image_bytes) > 12 and image_bytes[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+def adjust_path_for_image_bytes(
+    requested_path: str,
+    image_bytes: bytes,
+    *,
+    warning_factory: Optional[
+        Callable[[str, Optional[str], Literal["added", "changed"]], str]
+    ] = None,
+) -> Tuple[str, Optional[str]]:
+    """Correct output path extension to match decoded image bytes."""
+    actual_format = detect_image_format(image_bytes)
+    if actual_format is None:
+        return requested_path, None
+
+    dot_pos = requested_path.rfind('.')
+    if dot_pos == -1:
+        actual_path = f"{requested_path}.{actual_format}"
+        warning = (
+            warning_factory(actual_path, None, "added")
+            if warning_factory
+            else f"File saved as: {actual_path}"
+        )
+        return actual_path, warning
+
+    requested_ext = requested_path[dot_pos + 1 :].lower()
+    if requested_ext != actual_format:
+        actual_path = f"{requested_path[:dot_pos]}.{actual_format}"
+        warning = (
+            warning_factory(actual_path, requested_ext, "changed")
+            if warning_factory
+            else f"File saved as: {actual_path}"
+        )
+        return actual_path, warning
+
+    return requested_path, None
+
+
+def derive_indexed_output_path(
+    base_path: str,
+    index: int,
+    total: int,
+    default_ext: str = ".jpg",
+) -> str:
+    """Return path for an indexed output when multiple images are produced."""
+    if total <= 1:
+        return base_path
+
+    dot_pos = base_path.rfind('.')
+    if dot_pos == -1:
+        stem = base_path
+        ext = default_ext if default_ext.startswith('.') else f".{default_ext}"
+    else:
+        stem, ext = base_path[:dot_pos], base_path[dot_pos:]
+
+    return f"{stem}_{index}{ext}"
 
 
 async def save_image_to_file(b64_image: str, output_path: str) -> Tuple[str, Optional[str]]:
@@ -205,3 +272,4 @@ async def save_image_to_file(b64_image: str, output_path: str) -> Tuple[str, Opt
         except Exception as fallback_error:
             # If even temp directory fails, raise the original error
             raise ToolError(f"Failed to save image to '{output_path}': {str(e)}. Temp directory fallback also failed: {str(fallback_error)}")
+
