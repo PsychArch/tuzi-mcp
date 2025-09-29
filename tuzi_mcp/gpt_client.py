@@ -105,17 +105,17 @@ class GPTImageClient:
                 ) as response:
                     response.raise_for_status()
                     
-                    # Read streaming response chunks
+                    # Read streaming response chunks until completion
                     response_content = ""
-                    chunk_count = 0
-                    max_chunks = 20  # Safety limit
-                    
+
                     async for chunk in response.aiter_text():
-                        chunk_count += 1
                         response_content += chunk
-                        
-                        if chunk_count >= max_chunks:
+
+                        # Check for definitive completion indicators
+                        if '"finish_reason":"stop"' in chunk or chunk.strip() == 'data: [DONE]':
                             break
+
+                    # Stream completed - extract URLs from complete response
                     
                     # Extract URLs from complete response
                     preview_url, source_url = await self.extract_async_urls(response_content)

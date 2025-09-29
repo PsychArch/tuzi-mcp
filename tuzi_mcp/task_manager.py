@@ -279,15 +279,15 @@ class PollingCoordinator:
         """Check a single source URL and handle completion"""
         source_url = task_info['source_url']
         short_id = task_id[:8] + "..."
-        
+
         # Calculate elapsed time from task creation
         task_start_time = task_info['task'].start_time if hasattr(task_info['task'], 'start_time') else datetime.now()
         elapsed = (datetime.now() - task_start_time).total_seconds()
-        
+
         try:
             response = await client.get(source_url)
             response.raise_for_status()
-            
+
             # Parse JSON response and extract content field
             try:
                 json_data = response.json()
@@ -295,23 +295,15 @@ class PollingCoordinator:
             except json.JSONDecodeError:
                 # Fallback to raw text if not JSON
                 content = response.text
-            
-            
-            # Look for final image URL - prioritize download URLs (language-independent)
-            download_url_match = re.search(r'https://filesystem\.site/cdn/download/[^\s\)\]]+\.(?:png|jpg|jpeg|webp)', content)
-            if download_url_match:
-                final_url = download_url_match.group(0)
+
+            # Find all URLs with image suffixes and take the last one (most recent)
+            all_image_urls = re.findall(r'https://[^\s\)\]]+\.(?:png|jpg|jpeg|webp)[^\s\)\]]*', content)
+
+            if all_image_urls:
+                final_url = all_image_urls[-1]  # Take the last (most recent) URL
             else:
-                # Fallback to any URL with image suffix
-                any_image_url_match = re.search(r'https://[^\s\)\]]+\.(?:png|jpg|jpeg|webp)', content)
-                if any_image_url_match:
-                    final_url = any_image_url_match.group(0)
-                else:
-                    # Still no image URL found, check if still processing by looking for specific domain patterns
-                    if "asyncdata.net" in content and not re.search(r'https://[^\s\)\]]+\.(?:png|jpg|jpeg|webp)', content):
-                        return  # Still processing
-                    else:
-                        return  # No image URL found
+                # No image URLs found yet, continue polling
+                return
             
             
             # Download the image
