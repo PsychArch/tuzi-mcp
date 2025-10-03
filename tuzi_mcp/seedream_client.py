@@ -158,45 +158,38 @@ class SeedreamImageClient:
                 outputs = await self.images_generate(prompt=prompt, size=size, quality=quality, n=max(1, int(n)))
 
             # Download and save images (support n>1 by suffixing)
-            warnings: List[str] = []
             images_saved = 0
-            
+
             if len(outputs) == 1:
                 img_bytes = await download_image_from_url(outputs[0])
                 b64_image = base64.b64encode(img_bytes).decode("utf-8")
-                
+
                 actual_path, format_warning = adjust_path_for_image_bytes(task.output_path, img_bytes)
                 if format_warning:
-                    warnings.append(format_warning)
-                
+                    task.add_warning(format_warning)
+
                 _, warning = await save_image_to_file(b64_image, actual_path)
                 if warning:
-                    warnings.append(warning)
+                    task.add_warning(warning)
                 images_saved = 1
             else:
                 for idx, url in enumerate(outputs, start=1):
                     img_bytes = await download_image_from_url(url)
                     b64_image = base64.b64encode(img_bytes).decode("utf-8")
                     save_path = derive_indexed_output_path(task.output_path, idx, len(outputs))
-                    
+
                     actual_path, format_warning = adjust_path_for_image_bytes(save_path, img_bytes)
                     if format_warning:
-                        warnings.append(format_warning)
-                    
+                        task.add_warning(format_warning)
+
                     _, warning = await save_image_to_file(b64_image, actual_path)
                     if warning:
-                        warnings.append(warning)
+                        task.add_warning(warning)
                     images_saved += 1
-            
+
             # Add image count info to warnings when user requested multiple images
             if n > 1:
-                warnings.append(f"Generated {images_saved} images (requested {n})")
-
-            # Store one combined warning if needed
-            if warnings:
-                task.result = {"warning": " | ".join(warnings)}
-            else:
-                task.result = None
+                task.add_warning(f"Generated {images_saved} images (requested {n})")
 
             task.status = "completed"
 

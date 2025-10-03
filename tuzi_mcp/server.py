@@ -218,8 +218,18 @@ async def wait_tasks(
         completed_tasks = result["completed_tasks"]
         failed_tasks = result["failed_tasks"]
         still_running = result["still_running"]
-        
+        polling_errors = result.get("polling_errors", [])
+
         status_message = ""
+
+        # Show polling errors if any occurred
+        if polling_errors:
+            status_message += "\n⚠️ Polling errors encountered:"
+            for error in polling_errors[:10]:  # Limit to first 10 errors
+                status_message += f"\n  - {error}"
+            if len(polling_errors) > 10:
+                status_message += f"\n  ... and {len(polling_errors) - 10} more errors"
+            status_message += "\n"
 
         # Show task status for each task
         if completed_tasks:

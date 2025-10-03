@@ -209,27 +209,22 @@ class GeminiImageClient:
                 task.status = "failed"
                 return
 
-            warnings: List[str] = []
+            # Collect warnings using unified system
             for result in results:
-                warnings.extend(result.warnings)
+                for warning in result.warnings:
+                    task.add_warning(warning)
                 if result.error:
-                    warnings.append(result.error)
+                    task.add_warning(result.error)
 
             if total_images > 1:
-                warnings.append(f"Generated {len(successful)} images")
+                task.add_warning(f"Generated {len(successful)} images")
 
-            if warnings:
-                joined_warning = "; ".join(warnings)
-                task.result = {
-                    "warning": joined_warning,
-                    "warnings": warnings,
-                    "images": [result.path for result in successful if result.path],
-                    "failed_images": [result.index for result in failed if result.error],
-                }
-            else:
-                task.result = {
-                    "images": [result.path for result in successful if result.path],
-                }
+            # Store additional metadata in result (not warnings)
+            task.result = {
+                "images": [result.path for result in successful if result.path],
+            }
+            if failed:
+                task.result["failed_images"] = [result.index for result in failed if result.error]
 
             task.status = "completed"
 
